@@ -272,7 +272,7 @@ async def github_list_repos(token: str | None) -> list[dict[str, str]]:
 async def classify_issue(issue: Issue) -> Triage:
     try:
         if not getenv("GROQ_API_KEY"):
-            raise RuntimeError("GROQ_API_KEY is not set; using deterministic demo classifier")
+            raise RuntimeError("GROQ_API_KEY is not set; using deterministic code-finding classifier")
         from langchain_core.output_parsers import JsonOutputParser
         from langchain_core.prompts import ChatPromptTemplate
         from langchain_groq import ChatGroq
@@ -292,34 +292,41 @@ async def classify_issue(issue: Issue) -> Triage:
         return Triage(issue=issue, **data)
     except Exception:
         text = f"{issue.title} {issue.body or ''}".lower()
-        if any(term in text for term in ["crash", "bug", "500", "error", "fails"]):
-            return Triage(
-                issue=issue,
-                category="bug",
-                priority="high",
-                labels=["bug", "priority:high"],
-                response="Thanks for the report. This looks reproducible and should be prioritized. Could you share the command, version, and minimal repo shape?",
-                rationale="Failure and crash keywords indicate a high-impact bug.",
-                confidence=0.84,
-            )
-        if any(term in text for term in ["feature", "request", "generate", "add"]):
-            return Triage(
-                issue=issue,
-                category="feature_request",
-                priority="medium",
-                labels=["enhancement", "needs-design"],
-                response="Thanks for the suggestion. This fits the project direction; a maintainer should confirm scope before implementation.",
-                rationale="The issue asks for new capability rather than broken behavior.",
-                confidence=0.76,
-            )
+        labels = list(dict.fromkeys(issue.labels or ["code-scan"]))
+        category = "code_quality"
+        priority = "medium"
+        confidence = 0.7
+        rationale = "RepoPilot found a concrete code pattern that should be reviewed by a maintainer."
+        if "security" in labels or "eval usage" in text or "html injection" in text:
+            category = "security_review"
+            priority = "high"
+            confidence = 0.86
+            rationale = "The finding may affect code execution or HTML injection risk."
+        elif "testing" in labels or "automated tests" in text:
+            category = "test_coverage"
+            priority = "medium"
+            confidence = 0.66
+            rationale = "The finding identifies missing or weak workflow coverage."
+        elif "bug" in labels or "exception handling" in text:
+            category = "bug_risk"
+            priority = "high"
+            confidence = 0.78
+            rationale = "Broad exception handling can hide real failures and make debugging harder."
+        elif "maintenance" in labels or "todo" in text or "fixme" in text:
+            category = "maintenance"
+            priority = "low"
+            confidence = 0.72
+            rationale = "TODO/FIXME markers should either be resolved or converted into tracked work."
+        if f"priority:{priority}" not in labels:
+            labels.append(f"priority:{priority}")
         return Triage(
             issue=issue,
-            category="question",
-            priority="low",
-            labels=["question", "needs-triage"],
-            response="Thanks for opening this. A maintainer should clarify expected behavior before assigning implementation labels.",
-            rationale="The issue needs more context before action.",
-            confidence=0.62,
+            category=category,
+            priority=priority,
+            labels=labels,
+            response=issue.body or issue.title,
+            rationale=rationale,
+            confidence=confidence,
         )
 
 

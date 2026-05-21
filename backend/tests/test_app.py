@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app import app
+from app import Issue, app, classify_issue
 
 
 client = TestClient(app)
@@ -37,6 +37,24 @@ def test_autonomous_run_can_scan_all_repos():
     assert response.status_code == 200
     assert response.json()["groups"][0]["repo"] == "demo/repopilot"
     assert response.json()["approvals"]
+
+
+def test_code_finding_body_is_preserved():
+    issue = Issue(
+        number=-1,
+        title="Review eval usage in generate.py",
+        body="`generate.py` calls `eval`, which can create code execution risk.\n\nSource: `generate.py`\nConfidence: 0.86",
+        labels=["security", "code-scan"],
+    )
+
+    import asyncio
+
+    result = asyncio.run(classify_issue(issue))
+
+    assert result.category == "security_review"
+    assert result.priority == "high"
+    assert "`generate.py` calls `eval`" in result.response
+    assert "security" in result.labels
 
 
 def test_write_action_requires_approval():
