@@ -28,11 +28,12 @@ async function safeRequest(path, options = {}) {
 }
 
 export const api = {
+  auto: (payload) => safeRequest("/autonomous/run", { method: "POST", body: JSON.stringify(payload) }),
   repos: (payload) => safeRequest("/repos/list", { method: "POST", body: JSON.stringify(payload) }),
   connect: (payload) => safeRequest("/repos/connect", { method: "POST", body: JSON.stringify(payload) }),
   triage: (owner, repo, payload) => safeRequest(`/repos/${owner}/${repo}/triage`, { method: "POST", body: JSON.stringify(payload) }),
   decide: (id, payload) => safeRequest(`/approvals/${id}/decision`, { method: "POST", body: JSON.stringify(payload) }),
-  post: (id) => safeRequest(`/approvals/${id}/post`, { method: "POST" }),
+  post: (id, token) => safeRequest(`/approvals/${id}/post${token ? `?token=${encodeURIComponent(token)}` : ""}`, { method: "POST" }),
   history: () => safeRequest("/history"),
   qa: (payload) => safeRequest("/qa", { method: "POST", body: JSON.stringify(payload) }),
 };

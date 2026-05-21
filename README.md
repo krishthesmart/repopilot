@@ -1,6 +1,6 @@
 # RepoPilot
 
-RepoPilot is a small AI maintainer copilot for GitHub repositories. It connects to a repo, scans selected code files for likely issues, drafts GitHub issues with labels and rationale, then requires explicit human approval before anything is posted back to GitHub.
+RepoPilot is a small AI maintainer copilot for GitHub repositories. Paste a GitHub token, start autonomous mode, and it scans the most recently updated accessible repository for likely code issues. It drafts GitHub issues with labels and rationale, then requires explicit human approval before anything is posted back to GitHub.
 
 The project is intentionally compact: fewer than 20 source/config files, a working FastAPI backend, a React/Vite UI, tests, and Docker support.
 
@@ -12,6 +12,7 @@ The project is intentionally compact: fewer than 20 source/config files, a worki
 - GitHub token access with in-memory token handling.
 - Approval-gated write actions for creating GitHub issues from code findings.
 - Demo mode when no GitHub token or Groq key is present.
+- Autonomous scan loop that can be paused while keeping human approval required.
 - Tests for the core API and approval workflow.
 
 ## Architecture
@@ -19,6 +20,7 @@ The project is intentionally compact: fewer than 20 source/config files, a worki
 ```text
 React UI
   -> FastAPI API
+      -> choose most recently updated accessible repo
       -> GitHub repo/code fetch
       -> LangGraph workflow
           -> classify code findings via LangChain/Groq or deterministic fallback
@@ -44,7 +46,7 @@ cd backend
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app:app --reload
+uvicorn app:app --reload --port 8001
 ```
 
 Frontend:
@@ -72,12 +74,14 @@ Without keys, RepoPilot runs in demo mode with seeded issues and heuristic class
 
 ## Usage
 
-1. Enter `owner`, `repo`, and optionally a GitHub token.
-2. Click **Load repos** and choose a repository, or type owner/repo manually.
-3. Click **Scan and draft issues** to run the LangGraph workflow.
+1. Paste a GitHub token.
+2. Click **Start autonomous scan**.
+3. RepoPilot picks the most recently updated accessible repository and scans sampled code files.
 4. Review labels and the drafted GitHub issue body.
 5. Click **Approve** or **Reject**.
 6. Click **Post** only after approval to create the GitHub issue.
+
+Autonomous mode rescans every 60 seconds until paused. Repo Q&A remains available for the watched repository.
 
 ## Tests
 

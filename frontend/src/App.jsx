@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Bot, Check, GitPullRequest, History, MessageSquare, Send, ShieldCheck, Tags, X } from "lucide-react";
 import { api } from "./api";
@@ -9,6 +9,7 @@ function App() {
   const [repos, setRepos] = useState([]);
   const [connected, setConnected] = useState(null);
   const [approvals, setApprovals] = useState([]);
+  const [autonomous, setAutonomous] = useState(false);
   const [history, setHistory] = useState([]);
   const [qa, setQa] = useState({ question: "How are write actions protected?", answer: "" });
   const [notice, setNotice] = useState("");
@@ -20,6 +21,14 @@ function App() {
     approved: approvals.filter((item) => item.status === "approved").length,
     posted: approvals.filter((item) => item.status === "posted").length,
   }), [approvals]);
+
+  useEffect(() => {
+    if (!autonomous) return undefined;
+    const timer = window.setInterval(() => {
+      run(autoScan);
+    }, 60000);
+    return () => window.clearInterval(timer);
+  }, [autonomous, form.github_token]);
 
   async function run(fn) {
     setBusy(true);
@@ -43,11 +52,20 @@ function App() {
     setForm({ ...form, owner, repo });
   }
 
+  async function autoScan() {
+    const result = await api.auto(payload());
+    const [owner, repo] = result.repo.split("/");
+    setForm((current) => ({ ...current, owner, repo }));
+    setConnected(result);
+    setApprovals(result.approvals);
+    setNotice(result.message);
+  }
+
   return (
     <main className="shell">
       <aside className="sidebar">
         <div className="brand"><Bot size={22} /> RepoPilot</div>
-        <button className="nav active"><MessageSquare size={16} /> Code scan</button>
+        <button className="nav active"><MessageSquare size={16} /> Autonomous scan</button>
         <button className="nav"><GitPullRequest size={16} /> PR review</button>
         <button className="nav"><History size={16} /> Trace history</button>
         <div className="trace">
@@ -60,41 +78,24 @@ function App() {
         <header className="topbar">
           <div>
             <h1>AI maintainer copilot</h1>
-            <p>Select a repo, find code issues, review drafts, then approve any GitHub issue creation.</p>
+            <p>Paste a token, let RepoPilot scan your latest repository, then approve any GitHub issue creation.</p>
           </div>
           <button className="primary" disabled={busy} onClick={() => run(async () => {
-            const result = await api.connect(payload());
-            setConnected(result);
-            setNotice(result.message);
-          })}>Scan repo</button>
+            await autoScan();
+            setAutonomous(true);
+          })}>Start autonomous scan</button>
         </header>
 
         {error && <div className="error">{error}</div>}
 
         <section className="connect panel">
           <input value={form.github_token} onChange={(e) => setForm({ ...form, github_token: e.target.value })} placeholder="GitHub token optional" type="password" />
-          <button disabled={busy} onClick={() => run(async () => {
-            const result = await api.repos(payload());
-            setRepos(result.repos);
-            if (result.repos[0]) selectRepo(result.repos[0].full_name);
-            setNotice(result.repos.length ? `Loaded ${result.repos.length} repo(s).` : "No repositories returned. Type owner and repo manually.");
-          })}>Load repos</button>
-          <select value={`${form.owner}/${form.repo}`} onChange={(e) => selectRepo(e.target.value)}>
-            <option value={`${form.owner}/${form.repo}`}>{form.owner}/{form.repo}</option>
-            {repos.map((repo) => <option key={repo.full_name} value={repo.full_name}>{repo.full_name}</option>)}
-          </select>
-          <input value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })} placeholder="owner" />
-          <input value={form.repo} onChange={(e) => setForm({ ...form, repo: e.target.value })} placeholder="repo" />
-          <button disabled={busy} onClick={() => run(async () => {
-            const result = await api.connect(payload());
-            setConnected(result);
-            setNotice(result.message);
-          })}>Scan code</button>
           <button className="primary" disabled={busy} onClick={() => run(async () => {
-            const result = await api.triage(form.owner, form.repo, payload());
-            setApprovals(result);
-            setNotice(result.length ? `Created ${result.length} approval item(s).` : "No code findings found, so no approval items were created.");
-          })}>Scan and draft issues</button>
+            await autoScan();
+            setAutonomous(true);
+          })}>{autonomous ? "Scan now" : "Start"}</button>
+          <button disabled={!autonomous} onClick={() => setAutonomous(false)}>Pause</button>
+          <div className="repo-current">Watching: <strong>{connected?.repo || `${form.owner}/${form.repo}`}</strong></div>
         </section>
 
         {notice && <div className="notice">{notice}</div>}
@@ -109,9 +110,9 @@ function App() {
         <section className="columns">
           <div className="panel queue">
             <div className="panel-title"><Tags size={18} /> Human review queue</div>
-            {approvals.length === 0 && <p className="empty">Run a code scan to create approval-gated GitHub issue drafts.</p>}
+            {approvals.length === 0 && <p className="empty">Start autonomous scan to create approval-gated GitHub issue drafts.</p>}
             {approvals.map((item) => (
-              <ReviewCard key={item.id} item={item} busy={busy} onChange={(next) => setApprovals(approvals.map((a) => a.id === next.id ? next : a))} />
+              <ReviewCard key={item.id} item={item} busy={busy} token={form.github_token} onChange={(next) => setApprovals(approvals.map((a) => a.id === next.id ? next : a))} />
             ))}
           </div>
 
@@ -144,7 +145,7 @@ function Metric({ label, value }) {
   return <div className="metric"><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function ReviewCard({ item, busy, onChange }) {
+function ReviewCard({ item, busy, token, onChange }) {
   const [labels, setLabels] = useState(item.result.labels.join(", "));
   const [response, setResponse] = useState(item.result.response);
   const decide = (approved) => api.decide(item.id, { approved, labels: labels.split(",").map((x) => x.trim()).filter(Boolean), response }).then(onChange);
@@ -161,7 +162,7 @@ function ReviewCard({ item, busy, onChange }) {
       <div className="actions">
         <button disabled={busy || item.status === "posted"} onClick={() => decide(true)}><Check size={15} /> Approve</button>
         <button disabled={busy || item.status === "posted"} onClick={() => decide(false)}><X size={15} /> Reject</button>
-        <button className="primary" disabled={busy || item.status !== "approved"} onClick={() => api.post(item.id).then(onChange)}><Send size={15} /> Post</button>
+        <button className="primary" disabled={busy || item.status !== "approved"} onClick={() => api.post(item.id, token).then(onChange)}><Send size={15} /> Post</button>
       </div>
     </article>
   );

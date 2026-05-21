@@ -25,6 +25,13 @@ def test_list_repos_works_in_demo_mode():
     assert response.json()["repos"][0]["full_name"] == "demo/repopilot"
 
 
+def test_autonomous_run_scans_first_repo():
+    response = client.post("/api/autonomous/run", json={})
+    assert response.status_code == 200
+    assert response.json()["repo"] == "demo/repopilot"
+    assert response.json()["approvals"]
+
+
 def test_write_action_requires_approval():
     triage = client.post("/api/repos/demo/repopilot/triage", json={"owner": "demo", "repo": "repopilot"})
     approval_id = triage.json()[0]["id"]

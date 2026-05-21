@@ -378,6 +378,24 @@ async def list_repos(payload: RepoConnect) -> dict[str, Any]:
     return {"demo_mode": token is None, "repos": repos}
 
 
+@app.post("/api/autonomous/run")
+async def autonomous_run(payload: RepoConnect) -> dict[str, Any]:
+    token = token_from(payload.github_token)
+    repos = await github_list_repos(token)
+    if not repos:
+        raise HTTPException(404, "No accessible repositories were found for this token.")
+    target = repos[0]
+    findings = await github_scan_code(target["owner"], target["repo"], token)
+    approvals = [await run_triage(target["owner"], target["repo"], issue) for issue in findings[:5]]
+    return {
+        "repo": target["full_name"],
+        "demo_mode": token is None,
+        "issues": findings,
+        "approvals": approvals,
+        "message": f"Autonomous scan checked {target['full_name']} and created {len(approvals)} approval item(s).",
+    }
+
+
 @app.post("/api/repos/{owner}/{repo}/triage")
 async def triage(owner: str, repo: str, payload: RepoConnect) -> list[Approval]:
     issues = await github_scan_code(owner, repo, token_from(payload.github_token))
