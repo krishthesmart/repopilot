@@ -1,6 +1,6 @@
 # RepoPilot
 
-RepoPilot is a small AI maintainer copilot for GitHub repositories. It connects to a repo, fetches open issues, classifies them, suggests labels and a maintainer response, then requires explicit human approval before anything is posted back to GitHub.
+RepoPilot is a small AI maintainer copilot for GitHub repositories. It connects to a repo, scans selected code files for likely issues, drafts GitHub issues with labels and rationale, then requires explicit human approval before anything is posted back to GitHub.
 
 The project is intentionally compact: fewer than 20 source/config files, a working FastAPI backend, a React/Vite UI, tests, and Docker support.
 
@@ -10,7 +10,7 @@ The project is intentionally compact: fewer than 20 source/config files, a worki
 - LangGraph for the issue triage workflow and the human approval gate.
 - LangSmith tracing through normal `LANGSMITH_*` environment variables.
 - GitHub token access with in-memory token handling.
-- Approval-gated write actions for labels and issue comments.
+- Approval-gated write actions for creating GitHub issues from code findings.
 - Demo mode when no GitHub token or Groq key is present.
 - Tests for the core API and approval workflow.
 
@@ -19,11 +19,11 @@ The project is intentionally compact: fewer than 20 source/config files, a worki
 ```text
 React UI
   -> FastAPI API
-      -> GitHub issue fetch
+      -> GitHub repo/code fetch
       -> LangGraph workflow
-          -> classify_issue via LangChain/Groq or deterministic fallback
+          -> classify code findings via LangChain/Groq or deterministic fallback
           -> human_approval_required
-      -> approved post to GitHub labels/comments
+      -> approved GitHub issue creation
       -> LangSmith traces from LangChain/LangGraph config
 ```
 
@@ -73,11 +73,11 @@ Without keys, RepoPilot runs in demo mode with seeded issues and heuristic class
 ## Usage
 
 1. Enter `owner`, `repo`, and optionally a GitHub token.
-2. Click **Connect repo** to fetch issues.
-3. Click **Fetch and triage** to run the LangGraph workflow.
-4. Review labels and the draft response.
+2. Click **Load repos** and choose a repository, or type owner/repo manually.
+3. Click **Scan and draft issues** to run the LangGraph workflow.
+4. Review labels and the drafted GitHub issue body.
 5. Click **Approve** or **Reject**.
-6. Click **Post** only after approval.
+6. Click **Post** only after approval to create the GitHub issue.
 
 ## Tests
 
@@ -86,7 +86,7 @@ cd backend
 pytest
 ```
 
-The tests verify demo repo connection, the approval gate, and the approve-then-post path.
+The tests verify demo repo scanning, the approval gate, and the approve-then-post path.
 
 ## Docker
 

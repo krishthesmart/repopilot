@@ -47,7 +47,7 @@ function App() {
     <main className="shell">
       <aside className="sidebar">
         <div className="brand"><Bot size={22} /> RepoPilot</div>
-        <button className="nav active"><MessageSquare size={16} /> Issue triage</button>
+        <button className="nav active"><MessageSquare size={16} /> Code scan</button>
         <button className="nav"><GitPullRequest size={16} /> PR review</button>
         <button className="nav"><History size={16} /> Trace history</button>
         <div className="trace">
@@ -60,12 +60,13 @@ function App() {
         <header className="topbar">
           <div>
             <h1>AI maintainer copilot</h1>
-            <p>Connect a repo, classify issues, review suggestions, then approve any GitHub write.</p>
+            <p>Select a repo, find code issues, review drafts, then approve any GitHub issue creation.</p>
           </div>
           <button className="primary" disabled={busy} onClick={() => run(async () => {
             const result = await api.connect(payload());
             setConnected(result);
-          })}>Connect repo</button>
+            setNotice(result.message);
+          })}>Scan repo</button>
         </header>
 
         {error && <div className="error">{error}</div>}
@@ -88,18 +89,18 @@ function App() {
             const result = await api.connect(payload());
             setConnected(result);
             setNotice(result.message);
-          })}>Fetch issues</button>
+          })}>Scan code</button>
           <button className="primary" disabled={busy} onClick={() => run(async () => {
             const result = await api.triage(form.owner, form.repo, payload());
             setApprovals(result);
-            setNotice(result.length ? `Created ${result.length} approval item(s).` : "No open issues found, so no triage items were created.");
-          })}>Fetch and triage</button>
+            setNotice(result.length ? `Created ${result.length} approval item(s).` : "No code findings found, so no approval items were created.");
+          })}>Scan and draft issues</button>
         </section>
 
         {notice && <div className="notice">{notice}</div>}
 
         <section className="grid">
-          <Metric label="Open issues" value={connected?.issues?.length ?? "0"} />
+          <Metric label="Code findings" value={connected?.issues?.length ?? "0"} />
           <Metric label="Pending approvals" value={stats.pending} />
           <Metric label="Approved" value={stats.approved} />
           <Metric label="Posted" value={stats.posted} />
@@ -108,7 +109,7 @@ function App() {
         <section className="columns">
           <div className="panel queue">
             <div className="panel-title"><Tags size={18} /> Human review queue</div>
-            {approvals.length === 0 && <p className="empty">Run triage to create approval-gated suggestions.</p>}
+            {approvals.length === 0 && <p className="empty">Run a code scan to create approval-gated GitHub issue drafts.</p>}
             {approvals.map((item) => (
               <ReviewCard key={item.id} item={item} busy={busy} onChange={(next) => setApprovals(approvals.map((a) => a.id === next.id ? next : a))} />
             ))}
@@ -117,8 +118,8 @@ function App() {
           <div className="panel side">
             {connected?.issues?.length > 0 && (
               <div className="issue-list">
-                <div className="panel-title">Fetched issues</div>
-                {connected.issues.map((issue) => <div className="history" key={issue.number}>#{issue.number} · {issue.title}</div>)}
+                <div className="panel-title">Code findings</div>
+                {connected.issues.map((issue) => <div className="history" key={issue.number}>{issue.title}</div>)}
               </div>
             )}
             <div className="panel-title">Repo Q&A</div>
@@ -155,7 +156,7 @@ function ReviewCard({ item, busy, onChange }) {
       </div>
       <div className="chips"><span>{item.result.category}</span><span>{item.result.priority}</span><span>{Math.round(item.result.confidence * 100)}% confidence</span></div>
       <label>Labels<input value={labels} onChange={(e) => setLabels(e.target.value)} /></label>
-      <label>Maintainer response<textarea value={response} onChange={(e) => setResponse(e.target.value)} /></label>
+      <label>GitHub issue body<textarea value={response} onChange={(e) => setResponse(e.target.value)} /></label>
       <p className="rationale">{item.result.rationale}</p>
       <div className="actions">
         <button disabled={busy || item.status === "posted"} onClick={() => decide(true)}><Check size={15} /> Approve</button>

@@ -11,12 +11,12 @@ from app import app
 client = TestClient(app)
 
 
-def test_connect_repo_works_in_demo_mode():
+def test_scan_repo_works_in_demo_mode():
     response = client.post("/api/repos/connect", json={"owner": "demo", "repo": "repopilot"})
     assert response.status_code == 200
     assert response.json()["demo_mode"] is True
-    assert response.json()["issues"][0]["number"] == 42
-    assert response.json()["message"] == "Found 2 open issue(s)."
+    assert response.json()["issues"][0]["number"] == -1
+    assert response.json()["message"] == "Found 2 code finding(s)."
 
 
 def test_list_repos_works_in_demo_mode():

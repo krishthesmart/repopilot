@@ -6,6 +6,7 @@ from os import getenv
 from threading import Lock
 from typing import Any, TypedDict
 from uuid import uuid4
+import base64
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -108,53 +109,121 @@ def token_from(value: str | None) -> str | None:
 def demo_issues() -> list[Issue]:
     return [
         Issue(
-            number=42,
-            title="Bug: CLI crashes when repo has no README",
-            body="Running triage on a repo without README.md throws a 500 instead of a useful warning.",
-            author="octo-maintainer",
-            labels=["bug"],
-            url="https://github.com/demo/repopilot/issues/42",
+            number=-1,
+            title="Handle missing GitHub token before remote calls",
+            body="backend/app.py should validate missing or expired GitHub tokens before trying write operations, so users get a direct setup message.",
+            author="RepoPilot",
+            labels=["bug", "code-scan"],
+            url="https://github.com/demo/repopilot/blob/main/backend/app.py",
         ),
         Issue(
-            number=41,
-            title="Feature request: generate release notes by label",
-            body="Draft release notes from merged PRs grouped by feature, fix, docs, and chore labels.",
-            author="release-captain",
-            labels=[],
-            url="https://github.com/demo/repopilot/issues/41",
+            number=-2,
+            title="Add tests for approval-gated GitHub writes",
+            body="backend/tests/test_app.py should verify that code findings cannot be posted until a maintainer approves them.",
+            author="RepoPilot",
+            labels=["testing", "code-scan"],
+            url="https://github.com/demo/repopilot/blob/main/backend/tests/test_app.py",
         ),
     ]
 
 
-async def github_get_issues(owner: str, repo: str, token: str | None) -> list[Issue]:
+async def github_scan_code(owner: str, repo: str, token: str | None) -> list[Issue]:
     if not token:
         return demo_issues()
     headers = {"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}"}
     async with httpx.AsyncClient(timeout=20) as client:
-        response = await client.get(
-            f"https://api.github.com/repos/{owner}/{repo}/issues",
-            headers=headers,
-            params={"state": "open", "per_page": 8, "sort": "created", "direction": "desc"},
-        )
-    if response.status_code == 401:
+        repo_response = await client.get(f"https://api.github.com/repos/{owner}/{repo}", headers=headers)
+    if repo_response.status_code == 401:
         raise HTTPException(401, "GitHub token was rejected. Check that the token is complete and not expired.")
-    if response.status_code == 403:
-        raise HTTPException(403, f"GitHub token cannot read issues for {owner}/{repo}. Give it Metadata read and Issues read/write.")
-    if response.status_code == 404:
+    if repo_response.status_code == 403:
+        raise HTTPException(403, f"GitHub token cannot read {owner}/{repo}. Give it Metadata read and Contents read access.")
+    if repo_response.status_code == 404:
         raise HTTPException(404, f"Repository {owner}/{repo} was not found or the token was not granted access to it.")
-    response.raise_for_status()
-    issues = [item for item in response.json() if "pull_request" not in item]
-    return [
-        Issue(
-            number=item["number"],
-            title=item["title"],
-            body=item.get("body"),
-            author=item.get("user", {}).get("login"),
-            labels=[label["name"] for label in item.get("labels", [])],
-            url=item.get("html_url"),
+    repo_response.raise_for_status()
+    branch = repo_response.json().get("default_branch", "main")
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        tree_response = await client.get(
+            f"https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}",
+            headers=headers,
+            params={"recursive": "1"},
         )
-        for item in issues
-    ]
+        tree_response.raise_for_status()
+        paths = [
+            item["path"]
+            for item in tree_response.json().get("tree", [])
+            if item.get("type") == "blob" and is_scannable(item.get("path", "")) and item.get("size", 0) <= 80_000
+        ][:12]
+        files = []
+        for path in paths:
+            content_response = await client.get(f"https://api.github.com/repos/{owner}/{repo}/contents/{path}", headers=headers, params={"ref": branch})
+            if content_response.status_code == 200:
+                data = content_response.json()
+                if data.get("encoding") == "base64":
+                    text = base64.b64decode(data.get("content", "")).decode("utf-8", errors="ignore")
+                    files.append({"path": path, "text": text[:12_000]})
+    return await find_code_issues(owner, repo, branch, files)
+
+
+def is_scannable(path: str) -> bool:
+    allowed = (".py", ".js", ".jsx", ".ts", ".tsx", ".md", ".yml", ".yaml", ".json")
+    blocked = ("node_modules/", "dist/", "build/", ".venv/", "package-lock.json")
+    return path.endswith(allowed) and not any(part in path for part in blocked)
+
+
+async def find_code_issues(owner: str, repo: str, branch: str, files: list[dict[str, str]]) -> list[Issue]:
+    try:
+        if not getenv("GROQ_API_KEY") or not files:
+            raise RuntimeError("Using deterministic code scanner")
+        from langchain_core.output_parsers import JsonOutputParser
+        from langchain_core.prompts import ChatPromptTemplate
+        from langchain_groq import ChatGroq
+
+        snippets = "\n\n".join(f"FILE: {item['path']}\n{item['text'][:4000]}" for item in files[:6])
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", "Find up to 5 concrete code issues worth opening as GitHub issues. Return JSON list with title, body, labels, path, confidence."),
+                ("human", "Repository {repo} code snippets:\n\n{snippets}"),
+            ]
+        )
+        chain = prompt | ChatGroq(model=getenv("GROQ_MODEL", "llama-3.1-8b-instant"), temperature=0) | JsonOutputParser()
+        data = await chain.ainvoke({"repo": f"{owner}/{repo}", "snippets": snippets}, config={"tags": ["repopilot", "code-scan"]})
+        return findings_to_issues(owner, repo, branch, data[:5])
+    except Exception:
+        findings = []
+        for item in files:
+            text = item["text"]
+            path = item["path"]
+            if "TODO" in text or "FIXME" in text:
+                findings.append({"title": f"Resolve TODO/FIXME markers in {path}", "body": f"`{path}` contains TODO/FIXME markers that should be converted into tracked work or resolved.", "labels": ["maintenance", "code-scan"], "path": path, "confidence": 0.72})
+            if "except Exception" in text or "except:" in text:
+                findings.append({"title": f"Tighten broad exception handling in {path}", "body": f"`{path}` uses broad exception handling. Narrow the exception type or preserve enough context for debugging.", "labels": ["bug", "code-quality", "code-scan"], "path": path, "confidence": 0.78})
+            if "eval(" in text:
+                findings.append({"title": f"Review eval usage in {path}", "body": f"`{path}` calls `eval`, which can create code execution risk if any input is user-controlled.", "labels": ["security", "code-scan"], "path": path, "confidence": 0.86})
+            if "dangerouslySetInnerHTML" in text or ".innerHTML" in text:
+                findings.append({"title": f"Review HTML injection surface in {path}", "body": f"`{path}` writes HTML directly. Confirm content is trusted or sanitized.", "labels": ["security", "frontend", "code-scan"], "path": path, "confidence": 0.82})
+            if len(findings) >= 5:
+                break
+        if not findings:
+            findings.append({"title": "Add automated tests around core repository workflows", "body": "RepoPilot did not find obvious code smells in the sampled files. The next useful improvement is adding or expanding tests around the main workflow.", "labels": ["testing", "code-scan"], "path": files[0]["path"] if files else "repository", "confidence": 0.58})
+        return findings_to_issues(owner, repo, branch, findings[:5])
+
+
+def findings_to_issues(owner: str, repo: str, branch: str, findings: list[dict[str, Any]]) -> list[Issue]:
+    issues = []
+    for index, finding in enumerate(findings, start=1):
+        path = finding.get("path", "repository")
+        issues.append(
+            Issue(
+                number=-index,
+                title=finding.get("title", "Review code finding"),
+                body=f"{finding.get('body', '')}\n\nSource: `{path}`\nConfidence: {finding.get('confidence', 0.6)}",
+                author="RepoPilot",
+                labels=finding.get("labels", ["code-scan"]),
+                url=f"https://github.com/{owner}/{repo}/blob/{branch}/{path}",
+            )
+        )
+    return issues
 
 
 async def github_list_repos(token: str | None) -> list[dict[str, str]]:
@@ -188,8 +257,8 @@ async def classify_issue(issue: Issue) -> Triage:
 
         prompt = ChatPromptTemplate.from_messages(
             [
-                ("system", "You are RepoPilot. Return JSON: category, priority, labels, response, rationale, confidence."),
-                ("human", "Issue #{number}: {title}\n\n{body}\nExisting labels: {labels}"),
+                ("system", "You are RepoPilot. Return JSON: category, priority, labels, response, rationale, confidence for a GitHub issue draft."),
+                ("human", "Code finding: {title}\n\n{body}\nSuggested labels: {labels}"),
             ]
         )
         model = getenv("GROQ_MODEL", "llama-3.1-8b-instant")
@@ -295,10 +364,10 @@ def health() -> dict[str, str]:
 @app.post("/api/repos/connect")
 async def connect(payload: RepoConnect) -> dict[str, Any]:
     token = token_from(payload.github_token)
-    issues = await github_get_issues(payload.owner, payload.repo, token)
-    message = f"Found {len(issues)} open issue(s)."
+    issues = await github_scan_code(payload.owner, payload.repo, token)
+    message = f"Found {len(issues)} code finding(s)."
     if len(issues) == 0:
-        message = "This repository is accessible, but it has no open issues to triage."
+        message = "This repository is accessible, but RepoPilot did not find code issues in the sampled files."
     return {"repo": f"{payload.owner}/{payload.repo}", "demo_mode": token is None, "issues": issues, "message": message}
 
 
@@ -311,7 +380,7 @@ async def list_repos(payload: RepoConnect) -> dict[str, Any]:
 
 @app.post("/api/repos/{owner}/{repo}/triage")
 async def triage(owner: str, repo: str, payload: RepoConnect) -> list[Approval]:
-    issues = await github_get_issues(owner, repo, token_from(payload.github_token))
+    issues = await github_scan_code(owner, repo, token_from(payload.github_token))
     if not issues:
         return []
     return [await run_triage(owner, repo, issue) for issue in issues[:5]]
@@ -347,12 +416,21 @@ async def post(approval_id: str, token: str | None = None) -> Approval:
     if github_token:
         headers = {"Accept": "application/vnd.github+json", "Authorization": f"Bearer {github_token}"}
         async with httpx.AsyncClient(timeout=20) as client:
-            await client.post(f"https://api.github.com/repos/{owner}/{repo}/issues/{approval.issue_number}/labels", headers=headers, json={"labels": approval.result.labels})
-            response = await client.post(f"https://api.github.com/repos/{owner}/{repo}/issues/{approval.issue_number}/comments", headers=headers, json={"body": approval.result.response})
+            response = await client.post(
+                f"https://api.github.com/repos/{owner}/{repo}/issues",
+                headers=headers,
+                json={"title": approval.result.issue.title, "body": approval.result.response, "labels": approval.result.labels},
+            )
+            if response.status_code == 422 and approval.result.labels:
+                response = await client.post(
+                    f"https://api.github.com/repos/{owner}/{repo}/issues",
+                    headers=headers,
+                    json={"title": approval.result.issue.title, "body": approval.result.response},
+                )
             response.raise_for_status()
             approval.posted_url = response.json().get("html_url")
     else:
-        approval.posted_url = f"https://github.com/{approval.repo}/issues/{approval.issue_number}#demo-comment"
+        approval.posted_url = f"https://github.com/{approval.repo}/issues/new?title={approval.result.issue.title}"
     approval.status = Status.posted
     return store.save(approval)
 
