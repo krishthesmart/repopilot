@@ -1,6 +1,6 @@
 # RepoPilot
 
-RepoPilot is a small AI maintainer copilot for GitHub repositories. Paste a GitHub token, start autonomous mode, and it scans the most recently updated accessible repository for likely code issues. It drafts GitHub issues with labels and rationale, then requires explicit human approval before anything is posted back to GitHub.
+RepoPilot is a small AI maintainer copilot for GitHub repositories. Paste a GitHub token, start autonomous mode, and it scans either the most recently updated accessible repository or all accessible repositories for likely code issues. It drafts GitHub issues with labels and rationale, then requires explicit human approval before anything is posted back to GitHub.
 
 The project is intentionally compact: fewer than 20 source/config files, a working FastAPI backend, a React/Vite UI, tests, and Docker support.
 
@@ -20,7 +20,7 @@ The project is intentionally compact: fewer than 20 source/config files, a worki
 ```text
 React UI
   -> FastAPI API
-      -> choose most recently updated accessible repo
+      -> choose latest repo or all accessible repos
       -> GitHub repo/code fetch
       -> LangGraph workflow
           -> classify code findings via LangChain/Groq or deterministic fallback
@@ -75,13 +75,14 @@ Without keys, RepoPilot runs in demo mode with seeded issues and heuristic class
 ## Usage
 
 1. Paste a GitHub token.
-2. Click **Start autonomous scan**.
-3. RepoPilot picks the most recently updated accessible repository and scans sampled code files.
-4. Review labels and the drafted GitHub issue body.
-5. Click **Approve** or **Reject**.
-6. Click **Post** only after approval to create the GitHub issue.
+2. Choose **Latest repo** or **All repos**.
+3. Click **Start autonomous scan**.
+4. RepoPilot scans sampled code files and groups approval requests by repository.
+5. Review labels and the drafted GitHub issue body.
+6. Click **Approve** or **Reject**.
+7. Click **Post** only after approval to create the GitHub issue.
 
-Autonomous mode rescans every 60 seconds until paused. Repo Q&A remains available for the watched repository.
+Autonomous mode rescans every 60 seconds until paused. In **All repos** mode, the MVP scans up to 10 most recently updated accessible repositories per run to keep GitHub API usage reasonable. Repo Q&A remains available for the watched repository.
 
 ## Tests
 

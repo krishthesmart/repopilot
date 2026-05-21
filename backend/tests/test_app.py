@@ -32,6 +32,13 @@ def test_autonomous_run_scans_first_repo():
     assert response.json()["approvals"]
 
 
+def test_autonomous_run_can_scan_all_repos():
+    response = client.post("/api/autonomous/run", json={"scan_all": True})
+    assert response.status_code == 200
+    assert response.json()["groups"][0]["repo"] == "demo/repopilot"
+    assert response.json()["approvals"]
+
+
 def test_write_action_requires_approval():
     triage = client.post("/api/repos/demo/repopilot/triage", json={"owner": "demo", "repo": "repopilot"})
     approval_id = triage.json()[0]["id"]

@@ -27,6 +27,7 @@ class RepoConnect(BaseModel):
     owner: str = "demo"
     repo: str = "repopilot"
     github_token: str | None = Field(default=None, description="PAT used in memory only")
+    scan_all: bool = False
 
 
 class Triage(BaseModel):
@@ -384,15 +385,24 @@ async def autonomous_run(payload: RepoConnect) -> dict[str, Any]:
     repos = await github_list_repos(token)
     if not repos:
         raise HTTPException(404, "No accessible repositories were found for this token.")
-    target = repos[0]
-    findings = await github_scan_code(target["owner"], target["repo"], token)
-    approvals = [await run_triage(target["owner"], target["repo"], issue) for issue in findings[:5]]
+    targets = repos[:10] if payload.scan_all else repos[:1]
+    approvals = []
+    findings = []
+    groups = []
+    for target in targets:
+        repo_findings = await github_scan_code(target["owner"], target["repo"], token)
+        repo_approvals = [await run_triage(target["owner"], target["repo"], issue) for issue in repo_findings[:5]]
+        findings.extend(repo_findings)
+        approvals.extend(repo_approvals)
+        groups.append({"repo": target["full_name"], "issues": repo_findings, "approvals": repo_approvals})
+    repo_label = "all accessible repositories" if payload.scan_all else targets[0]["full_name"]
     return {
-        "repo": target["full_name"],
+        "repo": targets[0]["full_name"],
         "demo_mode": token is None,
         "issues": findings,
         "approvals": approvals,
-        "message": f"Autonomous scan checked {target['full_name']} and created {len(approvals)} approval item(s).",
+        "groups": groups,
+        "message": f"Autonomous scan checked {repo_label} and created {len(approvals)} approval item(s).",
     }
 
 

@@ -10,6 +10,7 @@ function App() {
   const [connected, setConnected] = useState(null);
   const [approvals, setApprovals] = useState([]);
   const [autonomous, setAutonomous] = useState(false);
+  const [scanMode, setScanMode] = useState("latest");
   const [history, setHistory] = useState([]);
   const [qa, setQa] = useState({ question: "How are write actions protected?", answer: "" });
   const [notice, setNotice] = useState("");
@@ -22,13 +23,21 @@ function App() {
     posted: approvals.filter((item) => item.status === "posted").length,
   }), [approvals]);
 
+  const approvalGroups = useMemo(() => {
+    return approvals.reduce((groups, item) => {
+      groups[item.repo] = groups[item.repo] || [];
+      groups[item.repo].push(item);
+      return groups;
+    }, {});
+  }, [approvals]);
+
   useEffect(() => {
     if (!autonomous) return undefined;
     const timer = window.setInterval(() => {
       run(autoScan);
     }, 60000);
     return () => window.clearInterval(timer);
-  }, [autonomous, form.github_token]);
+  }, [autonomous, form.github_token, scanMode]);
 
   async function run(fn) {
     setBusy(true);
@@ -53,7 +62,7 @@ function App() {
   }
 
   async function autoScan() {
-    const result = await api.auto(payload());
+    const result = await api.auto({ ...payload(), scan_all: scanMode === "all" });
     const [owner, repo] = result.repo.split("/");
     setForm((current) => ({ ...current, owner, repo }));
     setConnected(result);
@@ -78,7 +87,7 @@ function App() {
         <header className="topbar">
           <div>
             <h1>AI maintainer copilot</h1>
-            <p>Paste a token, let RepoPilot scan your latest repository, then approve any GitHub issue creation.</p>
+            <p>Paste a token, let RepoPilot scan repositories, then approve any GitHub issue creation.</p>
           </div>
           <button className="primary" disabled={busy} onClick={() => run(async () => {
             await autoScan();
@@ -90,12 +99,16 @@ function App() {
 
         <section className="connect panel">
           <input value={form.github_token} onChange={(e) => setForm({ ...form, github_token: e.target.value })} placeholder="GitHub token optional" type="password" />
+          <select value={scanMode} onChange={(event) => setScanMode(event.target.value)}>
+            <option value="latest">Latest repo</option>
+            <option value="all">All repos</option>
+          </select>
           <button className="primary" disabled={busy} onClick={() => run(async () => {
             await autoScan();
             setAutonomous(true);
           })}>{autonomous ? "Scan now" : "Start"}</button>
           <button disabled={!autonomous} onClick={() => setAutonomous(false)}>Pause</button>
-          <div className="repo-current">Watching: <strong>{connected?.repo || `${form.owner}/${form.repo}`}</strong></div>
+          <div className="repo-current">Watching: <strong>{scanMode === "all" ? "all accessible repos" : connected?.repo || `${form.owner}/${form.repo}`}</strong></div>
         </section>
 
         {notice && <div className="notice">{notice}</div>}
@@ -111,8 +124,13 @@ function App() {
           <div className="panel queue">
             <div className="panel-title"><Tags size={18} /> Human review queue</div>
             {approvals.length === 0 && <p className="empty">Start autonomous scan to create approval-gated GitHub issue drafts.</p>}
-            {approvals.map((item) => (
-              <ReviewCard key={item.id} item={item} busy={busy} token={form.github_token} onChange={(next) => setApprovals(approvals.map((a) => a.id === next.id ? next : a))} />
+            {Object.entries(approvalGroups).map(([repo, items]) => (
+              <section className="repo-group" key={repo}>
+                <div className="repo-heading">{repo}</div>
+                {items.map((item) => (
+                  <ReviewCard key={item.id} item={item} busy={busy} token={form.github_token} onChange={(next) => setApprovals(approvals.map((a) => a.id === next.id ? next : a))} />
+                ))}
+              </section>
             ))}
           </div>
 
