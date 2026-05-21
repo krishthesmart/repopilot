@@ -7,11 +7,13 @@ async function request(path, options = {}) {
   });
   if (!response.ok) {
     const body = await response.text();
+    let message = body;
     try {
-      throw new Error(JSON.parse(body).detail || body);
+      message = JSON.parse(body).detail || body;
     } catch {
-      throw new Error(body);
+      message = body;
     }
+    throw new Error(message);
   }
   return response.json();
 }

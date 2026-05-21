@@ -11,6 +11,7 @@ import base64
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 
@@ -103,6 +104,24 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(httpx.HTTPStatusError)
+async def http_status_error_handler(_, exc: httpx.HTTPStatusError):
+    status = exc.response.status_code
+    message = "GitHub API request failed."
+    try:
+        body = exc.response.json()
+        message = body.get("message", message)
+    except Exception:
+        if exc.response.text:
+            message = exc.response.text[:300]
+    return JSONResponse(status_code=status if status < 500 else 502, content={"detail": message})
+
+
+@app.exception_handler(httpx.RequestError)
+async def request_error_handler(_, exc: httpx.RequestError):
+    return JSONResponse(status_code=502, content={"detail": f"Could not reach GitHub: {exc}"})
+
+
 def token_from(value: str | None) -> str | None:
     return value or getenv("GITHUB_TOKEN")
 
@@ -149,6 +168,8 @@ async def github_scan_code(owner: str, repo: str, token: str | None) -> list[Iss
             headers=headers,
             params={"recursive": "1"},
         )
+        if tree_response.status_code == 409:
+            return await find_code_issues(owner, repo, branch, [])
         tree_response.raise_for_status()
         paths = [
             item["path"]
