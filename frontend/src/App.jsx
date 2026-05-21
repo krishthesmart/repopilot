@@ -11,6 +11,7 @@ function App() {
   const [approvals, setApprovals] = useState([]);
   const [history, setHistory] = useState([]);
   const [qa, setQa] = useState({ question: "How are write actions protected?", answer: "" });
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -23,6 +24,7 @@ function App() {
   async function run(fn) {
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       await fn();
     } catch (err) {
@@ -74,17 +76,27 @@ function App() {
             const result = await api.repos(payload());
             setRepos(result.repos);
             if (result.repos[0]) selectRepo(result.repos[0].full_name);
+            setNotice(result.repos.length ? `Loaded ${result.repos.length} repo(s).` : "No repositories returned. Type owner and repo manually.");
           })}>Load repos</button>
           <select value={`${form.owner}/${form.repo}`} onChange={(e) => selectRepo(e.target.value)}>
             <option value={`${form.owner}/${form.repo}`}>{form.owner}/{form.repo}</option>
             {repos.map((repo) => <option key={repo.full_name} value={repo.full_name}>{repo.full_name}</option>)}
           </select>
+          <input value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })} placeholder="owner" />
+          <input value={form.repo} onChange={(e) => setForm({ ...form, repo: e.target.value })} placeholder="repo" />
           <button disabled={busy} onClick={() => run(async () => {
             const result = await api.connect(payload());
             setConnected(result);
+            setNotice(result.message);
           })}>Fetch issues</button>
-          <button className="primary" disabled={busy} onClick={() => run(async () => setApprovals(await api.triage(form.owner, form.repo, payload())))}>Fetch and triage</button>
+          <button className="primary" disabled={busy} onClick={() => run(async () => {
+            const result = await api.triage(form.owner, form.repo, payload());
+            setApprovals(result);
+            setNotice(result.length ? `Created ${result.length} approval item(s).` : "No open issues found, so no triage items were created.");
+          })}>Fetch and triage</button>
         </section>
+
+        {notice && <div className="notice">{notice}</div>}
 
         <section className="grid">
           <Metric label="Open issues" value={connected?.issues?.length ?? "0"} />
@@ -103,6 +115,12 @@ function App() {
           </div>
 
           <div className="panel side">
+            {connected?.issues?.length > 0 && (
+              <div className="issue-list">
+                <div className="panel-title">Fetched issues</div>
+                {connected.issues.map((issue) => <div className="history" key={issue.number}>#{issue.number} · {issue.title}</div>)}
+              </div>
+            )}
             <div className="panel-title">Repo Q&A</div>
             <textarea value={qa.question} onChange={(e) => setQa({ ...qa, question: e.target.value })} />
             <button onClick={() => run(async () => {

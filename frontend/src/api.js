@@ -5,7 +5,14 @@ async function request(path, options = {}) {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) {
+    const body = await response.text();
+    try {
+      throw new Error(JSON.parse(body).detail || body);
+    } catch {
+      throw new Error(body);
+    }
+  }
   return response.json();
 }
 

@@ -16,6 +16,7 @@ def test_connect_repo_works_in_demo_mode():
     assert response.status_code == 200
     assert response.json()["demo_mode"] is True
     assert response.json()["issues"][0]["number"] == 42
+    assert response.json()["message"] == "Found 2 open issue(s)."
 
 
 def test_list_repos_works_in_demo_mode():

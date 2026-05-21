@@ -136,7 +136,13 @@ async def github_get_issues(owner: str, repo: str, token: str | None) -> list[Is
             headers=headers,
             params={"state": "open", "per_page": 8, "sort": "created", "direction": "desc"},
         )
-        response.raise_for_status()
+    if response.status_code == 401:
+        raise HTTPException(401, "GitHub token was rejected. Check that the token is complete and not expired.")
+    if response.status_code == 403:
+        raise HTTPException(403, f"GitHub token cannot read issues for {owner}/{repo}. Give it Metadata read and Issues read/write.")
+    if response.status_code == 404:
+        raise HTTPException(404, f"Repository {owner}/{repo} was not found or the token was not granted access to it.")
+    response.raise_for_status()
     issues = [item for item in response.json() if "pull_request" not in item]
     return [
         Issue(
@@ -290,7 +296,10 @@ def health() -> dict[str, str]:
 async def connect(payload: RepoConnect) -> dict[str, Any]:
     token = token_from(payload.github_token)
     issues = await github_get_issues(payload.owner, payload.repo, token)
-    return {"repo": f"{payload.owner}/{payload.repo}", "demo_mode": token is None, "issues": issues}
+    message = f"Found {len(issues)} open issue(s)."
+    if len(issues) == 0:
+        message = "This repository is accessible, but it has no open issues to triage."
+    return {"repo": f"{payload.owner}/{payload.repo}", "demo_mode": token is None, "issues": issues, "message": message}
 
 
 @app.post("/api/repos/list")
@@ -303,6 +312,8 @@ async def list_repos(payload: RepoConnect) -> dict[str, Any]:
 @app.post("/api/repos/{owner}/{repo}/triage")
 async def triage(owner: str, repo: str, payload: RepoConnect) -> list[Approval]:
     issues = await github_get_issues(owner, repo, token_from(payload.github_token))
+    if not issues:
+        return []
     return [await run_triage(owner, repo, issue) for issue in issues[:5]]
 
 
