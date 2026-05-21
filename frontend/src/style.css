@@ -6,7 +6,7 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; }
-button, input, textarea { font: inherit; }
+button, input, textarea, select { font: inherit; }
 button {
   border: 1px solid #c9d2e1;
   background: #ffffff;
@@ -29,8 +29,8 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 h1 { margin: 0 0 6px; font-size: 32px; letter-spacing: 0; }
 p { margin: 0; color: #60708a; }
 .panel { background: #fff; border: 1px solid #d9e1ec; border-radius: 8px; box-shadow: 0 12px 30px rgba(30, 43, 68, .08); }
-.connect { padding: 14px; display: grid; grid-template-columns: 1fr 1fr 1.5fr auto; gap: 10px; margin-bottom: 16px; }
-input, textarea { width: 100%; border: 1px solid #ccd6e4; border-radius: 8px; padding: 10px 11px; background: #fbfcfe; color: #172033; }
+.connect { padding: 14px; display: grid; grid-template-columns: minmax(220px, 1.3fr) auto minmax(240px, 1.2fr) auto auto; gap: 10px; margin-bottom: 16px; }
+input, textarea, select { width: 100%; border: 1px solid #ccd6e4; border-radius: 8px; padding: 10px 11px; background: #fbfcfe; color: #172033; }
 textarea { resize: vertical; min-height: 84px; }
 .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
 .metric { background: #fff; border: 1px solid #d9e1ec; border-radius: 8px; padding: 16px; }

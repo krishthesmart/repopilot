@@ -151,6 +151,27 @@ async def github_get_issues(owner: str, repo: str, token: str | None) -> list[Is
     ]
 
 
+async def github_list_repos(token: str | None) -> list[dict[str, str]]:
+    if not token:
+        return [{"full_name": "demo/repopilot", "owner": "demo", "repo": "repopilot"}]
+    headers = {"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}"}
+    async with httpx.AsyncClient(timeout=20) as client:
+        response = await client.get(
+            "https://api.github.com/user/repos",
+            headers=headers,
+            params={"per_page": 100, "sort": "updated", "affiliation": "owner,collaborator,organization_member"},
+        )
+    if response.status_code == 401:
+        raise HTTPException(401, "GitHub token was rejected. Check token value and repository permissions.")
+    if response.status_code == 403:
+        raise HTTPException(403, "GitHub token cannot list repositories. Use a fine-grained token with Metadata read access.")
+    response.raise_for_status()
+    return [
+        {"full_name": item["full_name"], "owner": item["owner"]["login"], "repo": item["name"]}
+        for item in response.json()
+    ]
+
+
 async def classify_issue(issue: Issue) -> Triage:
     try:
         if not getenv("GROQ_API_KEY"):
@@ -270,6 +291,13 @@ async def connect(payload: RepoConnect) -> dict[str, Any]:
     token = token_from(payload.github_token)
     issues = await github_get_issues(payload.owner, payload.repo, token)
     return {"repo": f"{payload.owner}/{payload.repo}", "demo_mode": token is None, "issues": issues}
+
+
+@app.post("/api/repos/list")
+async def list_repos(payload: RepoConnect) -> dict[str, Any]:
+    token = token_from(payload.github_token)
+    repos = await github_list_repos(token)
+    return {"demo_mode": token is None, "repos": repos}
 
 
 @app.post("/api/repos/{owner}/{repo}/triage")

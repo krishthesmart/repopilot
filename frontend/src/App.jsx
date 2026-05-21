@@ -6,6 +6,7 @@ import "./style.css";
 
 function App() {
   const [form, setForm] = useState({ owner: "demo", repo: "repopilot", github_token: "" });
+  const [repos, setRepos] = useState([]);
   const [connected, setConnected] = useState(null);
   const [approvals, setApprovals] = useState([]);
   const [history, setHistory] = useState([]);
@@ -33,6 +34,11 @@ function App() {
 
   function payload() {
     return { ...form, github_token: form.github_token || null };
+  }
+
+  function selectRepo(fullName) {
+    const [owner, repo] = fullName.split("/");
+    setForm({ ...form, owner, repo });
   }
 
   return (
@@ -63,10 +69,21 @@ function App() {
         {error && <div className="error">{error}</div>}
 
         <section className="connect panel">
-          <input value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })} placeholder="owner" />
-          <input value={form.repo} onChange={(e) => setForm({ ...form, repo: e.target.value })} placeholder="repo" />
           <input value={form.github_token} onChange={(e) => setForm({ ...form, github_token: e.target.value })} placeholder="GitHub token optional" type="password" />
-          <button disabled={busy} onClick={() => run(async () => setApprovals(await api.triage(form.owner, form.repo, payload())))}>Fetch and triage</button>
+          <button disabled={busy} onClick={() => run(async () => {
+            const result = await api.repos(payload());
+            setRepos(result.repos);
+            if (result.repos[0]) selectRepo(result.repos[0].full_name);
+          })}>Load repos</button>
+          <select value={`${form.owner}/${form.repo}`} onChange={(e) => selectRepo(e.target.value)}>
+            <option value={`${form.owner}/${form.repo}`}>{form.owner}/{form.repo}</option>
+            {repos.map((repo) => <option key={repo.full_name} value={repo.full_name}>{repo.full_name}</option>)}
+          </select>
+          <button disabled={busy} onClick={() => run(async () => {
+            const result = await api.connect(payload());
+            setConnected(result);
+          })}>Fetch issues</button>
+          <button className="primary" disabled={busy} onClick={() => run(async () => setApprovals(await api.triage(form.owner, form.repo, payload())))}>Fetch and triage</button>
         </section>
 
         <section className="grid">

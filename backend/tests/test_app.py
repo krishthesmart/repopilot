@@ -18,6 +18,12 @@ def test_connect_repo_works_in_demo_mode():
     assert response.json()["issues"][0]["number"] == 42
 
 
+def test_list_repos_works_in_demo_mode():
+    response = client.post("/api/repos/list", json={})
+    assert response.status_code == 200
+    assert response.json()["repos"][0]["full_name"] == "demo/repopilot"
+
+
 def test_write_action_requires_approval():
     triage = client.post("/api/repos/demo/repopilot/triage", json={"owner": "demo", "repo": "repopilot"})
     approval_id = triage.json()[0]["id"]
